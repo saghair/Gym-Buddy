@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Gym Buddy – Dashboard</title>
+  <link rel="stylesheet" href="assets/css/style.css" />
+</head>
+<body>
+<header>
+  <div class="navbar">
+    <a href="index.html" class="brand">
+      <div class="brand-pill">GB</div>
+      <span>Gym Buddy</span>
+    </a>
+    <nav>
+      <ul>
+        <li><a href="index.html" class="active">Home</a></li>
+        <li><a href="build-workout.html">Build workout</a></li>
+        <li><a href="workouts.html">Workouts</a></li>
+        <li><a href="programs.html">Programs</a></li>
+        <li><a href="challenges.html">Challenges</a></li>
+        <li><a href="tools.html">Tools</a></li>
+        <li><a href="profile.html">Profile</a></li>
+      </ul>
+    </nav>
+  </div>
+</header>
+
+<main>
+  <h1 class="page-title">Welcome back, Gym Buddy 👊</h1>
+  <p class="page-subtitle">
+    Your personal AI-powered training partner. Start with a smart workout,
+    check your programs, or ask the coach anything.
+  </p>
+
+  <section class="grid">
+    <article class="card">
+      <div class="card-header">
+        <h2 class="card-title">AI Workout of the Day</h2>
+        <span class="badge">AI generated</span>
+      </div>
+      <div class="card-body">
+        <p id="ai-wod-text" class="ai-box empty">
+          Click “Generate” to get a full-body workout suggestion for today.
+        </p>
+        <div class="btn-row">
+          <button id="btn-ai-wod" class="btn btn-primary">Generate workout</button>
+        </div>
+        <div id="ai-wod-status" class="status-text"></div>
+      </div>
+    </article>
+
+    <article class="card">
+      <div class="card-header">
+        <h2 class="card-title">Jump back in</h2>
+        <span class="badge">Shortcuts</span>
+      </div>
+      <div class="card-body">
+        <p>Pick where you want to continue:</p>
+        <div class="btn-row">
+          <a class="btn btn-outline" href="build-workout.html">Build a workout</a>
+          <a class="btn btn-outline" href="programs.html">View programs</a>
+          <a class="btn btn-outline" href="challenges.html">Daily challenge</a>
+          <a class="btn btn-outline" href="guides.html">Training guides</a>
+        </div>
+      </div>
+    </article>
+
+    <article class="card">
+      <div class="card-header">
+        <h2 class="card-title">Ask the AI coach</h2>
+        <span class="badge">Beta</span>
+      </div>
+      <div class="card-body">
+        <div class="field">
+          <label for="coach-question">
+            Ask anything (e.g. “How many days per week should I train as a beginner?”)
+          </label>
+          <textarea id="coach-question" placeholder="Type your question here..."></textarea>
+        </div>
+        <div class="btn-row">
+          <button id="btn-coach" class="btn btn-primary">Ask coach</button>
+        </div>
+        <div id="coach-status" class="status-text"></div>
+        <div id="coach-answer" class="ai-box empty">
+          The answer will appear here.
+        </div>
+      </div>
+    </article>
+  </section>
+</main>
+
+<script type="module">
+  import {
+    callGymBuddyAI,
+    buildWorkoutPrompt,
+    buildCoachPrompt
+  } from "./assets/js/ai.js";
+
+  const wodBtn = document.getElementById("btn-ai-wod");
+  const wodText = document.getElementById("ai-wod-text");
+  const wodStatus = document.getElementById("ai-wod-status");
+
+  const coachBtn = document.getElementById("btn-coach");
+  const coachQuestion = document.getElementById("coach-question");
+  const coachStatus = document.getElementById("coach-status");
+  const coachAnswer = document.getElementById("coach-answer");
+
+  wodBtn?.addEventListener("click", async () => {
+    wodBtn.disabled = true;
+    wodStatus.textContent = "Asking Gym Buddy AI...";
+    wodText.classList.remove("empty");
+    wodText.textContent = "";
+
+    try {
+      const prompt = buildWorkoutPrompt({
+        level: "Beginner–intermediate",
+        goal: "General fitness & strength",
+        equipment: ["Bodyweight"],
+        muscle: "Full body"
+      });
+
+      const reply = await callGymBuddyAI(prompt, "wod");
+      wodText.textContent = reply;
+      wodStatus.textContent = "Done ✔";
+    } catch (err) {
+      wodText.textContent = "Something went wrong while talking to the AI.";
+      wodStatus.textContent = err.message;
+    } finally {
+      wodBtn.disabled = false;
+    }
+  });
+
+  coachBtn?.addEventListener("click", async () => {
+    const q = coachQuestion.value.trim();
+    if (!q) {
+      coachStatus.textContent = "Please type a question first.";
+      return;
+    }
+
+    coachBtn.disabled = true;
+    coachStatus.textContent = "Thinking...";
+    coachAnswer.classList.remove("empty");
+    coachAnswer.textContent = "";
+
+    try {
+      const prompt = buildCoachPrompt(q);
+      const reply = await callGymBuddyAI(prompt, "coach");
+      coachAnswer.textContent = reply;
+      coachStatus.textContent = "Answer ready ✔";
+    } catch (err) {
+      coachAnswer.textContent = "Could not get an answer from the AI.";
+      coachStatus.textContent = err.message;
+    } finally {
+      coachBtn.disabled = false;
+    }
+  });
+</script>
+</body>
+</html>
