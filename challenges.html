@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Gym Buddy – Challenges</title>
+  <link rel="stylesheet" href="assets/css/style.css" />
+</head>
+<body>
+<header>
+  <div class="navbar">
+    <a href="index.html" class="brand">
+      <div class="brand-pill">GB</div>
+      <span>Gym Buddy</span>
+    </a>
+    <nav>
+      <ul>
+        <li><a href="index.html">Home</a></li>
+        <li><a href="build-workout.html">Build workout</a></li>
+        <li><a href="workouts.html">Workouts</a></li>
+        <li><a href="programs.html">Programs</a></li>
+        <li><a href="challenges.html" class="active">Challenges</a></li>
+        <li><a href="tools.html">Tools</a></li>
+        <li><a href="profile.html">Profile</a></li>
+      </ul>
+    </nav>
+  </div>
+</header>
+
+<main>
+  <h1 class="page-title">30-day push-up challenge</h1>
+  <p class="page-subtitle">
+    A simple daily challenge to build a push-up habit. Your progress is saved in this browser.
+  </p>
+
+  <section class="card">
+    <div class="card-header">
+      <h2 class="card-title">Your progress</h2>
+      <span class="badge">Daily</span>
+    </div>
+    <div class="card-body">
+      <div class="status-text" id="challenge-summary">
+        Loading progress...
+      </div>
+      <div class="progress">
+        <div class="progress-inner" id="challenge-bar"></div>
+      </div>
+
+      <table class="table" style="margin-top: 1rem;">
+        <thead>
+        <tr>
+          <th>Day</th>
+          <th>Target reps</th>
+          <th>Done?</th>
+        </tr>
+        </thead>
+        <tbody id="challenge-table-body"></tbody>
+      </table>
+    </div>
+  </section>
+</main>
+
+<script>
+  const STORAGE_KEY = "gymBuddyPushupChallenge";
+
+  function getChallenge() {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (!raw) {
+        return { days: Array(30).fill(false) };
+      }
+      const parsed = JSON.parse(raw);
+      if (!Array.isArray(parsed.days) || parsed.days.length !== 30) {
+        return { days: Array(30).fill(false) };
+      }
+      return parsed;
+    } catch {
+      return { days: Array(30).fill(false) };
+    }
+  }
+
+  function saveChallenge(data) {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+  }
+
+  const tableBody = document.getElementById("challenge-table-body");
+  const summaryEl = document.getElementById("challenge-summary");
+  const barEl = document.getElementById("challenge-bar");
+
+  const repsPlan = [
+    5, 6, 7, 8, 9, 10, 10, 12, 12, 14,
+    14, 16, 16, 18, 18, 20, 20, 22, 22, 24,
+    24, 26, 26, 28, 28, 30, 30, 32, 32, 35
+  ];
+
+  let challenge = getChallenge();
+
+  function render() {
+    tableBody.innerHTML = "";
+    let completed = 0;
+
+    challenge.days.forEach((done, i) => {
+      if (done) completed++;
+      const tr = document.createElement("tr");
+      tr.innerHTML = `
+        <td>Day ${i + 1}</td>
+        <td>${repsPlan[i]} reps</td>
+        <td><input type="checkbox" data-day="${i}" ${done ? "checked" : ""}></td>
+      `;
+      tableBody.appendChild(tr);
+    });
+
+    const percent = Math.round((completed / 30) * 100);
+    summaryEl.textContent = `${completed} / 30 days completed (${percent}%)`;
+    barEl.style.width = percent + "%";
+  }
+
+  tableBody.addEventListener("change", (e) => {
+    const checkbox = e.target;
+    if (!checkbox.matches("input[type='checkbox']")) return;
+    const dayIndex = parseInt(checkbox.dataset.day, 10);
+    if (Number.isNaN(dayIndex)) return;
+
+    challenge.days[dayIndex] = checkbox.checked;
+    saveChallenge(challenge);
+    render();
+  });
+
+  render();
+</script>
+</body>
+</html>

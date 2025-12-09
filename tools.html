@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Gym Buddy – Tools</title>
+  <link rel="stylesheet" href="assets/css/style.css" />
+</head>
+<body>
+<header>
+  <div class="navbar">
+    <a href="index.html" class="brand">
+      <div class="brand-pill">GB</div>
+      <span>Gym Buddy</span>
+    </a>
+    <nav>
+      <ul>
+        <li><a href="index.html">Home</a></li>
+        <li><a href="build-workout.html">Build workout</a></li>
+        <li><a href="workouts.html">Workouts</a></li>
+        <li><a href="programs.html">Programs</a></li>
+        <li><a href="challenges.html">Challenges</a></li>
+        <li><a href="tools.html" class="active">Tools</a></li>
+        <li><a href="profile.html">Profile</a></li>
+      </ul>
+    </nav>
+  </div>
+</header>
+
+<main>
+  <h1 class="page-title">Training tools</h1>
+  <p class="page-subtitle">
+    Quick helpers to understand your numbers. These are rough estimates,
+    not medical advice.
+  </p>
+
+  <section class="grid">
+    <article class="card">
+      <div class="card-header">
+        <h2 class="card-title">BMI calculator</h2>
+        <span class="badge">Estimate</span>
+      </div>
+      <div class="card-body">
+        <div class="form-row">
+          <div class="field">
+            <label for="bmi-weight">Weight (kg)</label>
+            <input id="bmi-weight" type="number" min="20" max="300" />
+          </div>
+          <div class="field">
+            <label for="bmi-height">Height (cm)</label>
+            <input id="bmi-height" type="number" min="120" max="230" />
+          </div>
+        </div>
+        <div class="btn-row">
+          <button id="btn-bmi" class="btn btn-primary">Calculate BMI</button>
+        </div>
+        <div id="bmi-result" class="status-text"></div>
+      </div>
+    </article>
+
+    <article class="card">
+      <div class="card-header">
+        <h2 class="card-title">1RM estimator</h2>
+        <span class="badge">Strength</span>
+      </div>
+      <div class="card-body">
+        <div class="form-row">
+          <div class="field">
+            <label for="rm-weight">Weight lifted (kg)</label>
+            <input id="rm-weight" type="number" min="1" max="400" />
+          </div>
+          <div class="field">
+            <label for="rm-reps">Reps performed</label>
+            <input id="rm-reps" type="number" min="1" max="15" />
+          </div>
+        </div>
+        <div class="btn-row">
+          <button id="btn-rm" class="btn btn-primary">Estimate 1RM</button>
+        </div>
+        <div id="rm-result" class="status-text"></div>
+      </div>
+    </article>
+  </section>
+</main>
+
+<script>
+  const bmiBtn = document.getElementById("btn-bmi");
+  const bmiWeight = document.getElementById("bmi-weight");
+  const bmiHeight = document.getElementById("bmi-height");
+  const bmiResult = document.getElementById("bmi-result");
+
+  bmiBtn.addEventListener("click", () => {
+    const w = parseFloat(bmiWeight.value);
+    const h = parseFloat(bmiHeight.value);
+
+    if (!w || !h || w <= 0 || h <= 0) {
+      bmiResult.textContent = "Please enter valid weight and height.";
+      return;
+    }
+
+    const m = h / 100;
+    const bmi = w / (m * m);
+    const rounded = bmi.toFixed(1);
+
+    let category = "Unknown";
+    if (bmi < 18.5) category = "Underweight";
+    else if (bmi < 25) category = "Normal weight";
+    else if (bmi < 30) category = "Overweight";
+    else category = "Obese";
+
+    bmiResult.textContent = `Your BMI is ${rounded} (${category}). Use this only as a rough guide.`;
+  });
+
+  const rmBtn = document.getElementById("btn-rm");
+  const rmWeight = document.getElementById("rm-weight");
+  const rmReps = document.getElementById("rm-reps");
+  const rmResult = document.getElementById("rm-result");
+
+  rmBtn.addEventListener("click", () => {
+    const w = parseFloat(rmWeight.value);
+    const r = parseInt(rmReps.value, 10);
+
+    if (!w || !r || w <= 0 || r <= 0) {
+      rmResult.textContent = "Please enter valid numbers.";
+      return;
+    }
+
+    const oneRM = w * (1 + r / 30);
+    rmResult.textContent = `Estimated 1RM: ${oneRM.toFixed(1)} kg (approximate).`;
+  });
+</script>
+</body>
+</html>

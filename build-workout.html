@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Gym Buddy – Build Workout</title>
+  <link rel="stylesheet" href="assets/css/style.css" />
+</head>
+<body>
+<header>
+  <div class="navbar">
+    <a href="index.html" class="brand">
+      <div class="brand-pill">GB</div>
+      <span>Gym Buddy</span>
+    </a>
+    <nav>
+      <ul>
+        <li><a href="index.html">Home</a></li>
+        <li><a href="build-workout.html" class="active">Build workout</a></li>
+        <li><a href="workouts.html">Workouts</a></li>
+        <li><a href="programs.html">Programs</a></li>
+        <li><a href="challenges.html">Challenges</a></li>
+        <li><a href="tools.html">Tools</a></li>
+        <li><a href="profile.html">Profile</a></li>
+      </ul>
+    </nav>
+  </div>
+</header>
+
+<main>
+  <h1 class="page-title">Build your workout</h1>
+  <p class="page-subtitle">
+    Choose your level, equipment and focus. Gym Buddy AI will build a workout plan for you.
+  </p>
+
+  <section class="card">
+    <div class="card-header">
+      <h2 class="card-title">Step 1–3: Tell Gym Buddy what you want</h2>
+      <span class="badge">Smart builder</span>
+    </div>
+    <div class="card-body">
+      <div class="form-row">
+        <div class="field">
+          <label for="level">Your level</label>
+          <select id="level">
+            <option>Beginner</option>
+            <option>Intermediate</option>
+            <option>Advanced</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="goal">Goal</label>
+          <select id="goal">
+            <option>Build muscle</option>
+            <option>Lose fat</option>
+            <option>General fitness</option>
+            <option>Improve strength</option>
+            <option>Improve endurance</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="focus">Focus area</label>
+          <select id="focus">
+            <option>Full body</option>
+            <option>Upper body</option>
+            <option>Lower body</option>
+            <option>Push (chest, shoulders, triceps)</option>
+            <option>Pull (back, biceps)</option>
+            <option>Core / abs</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="field">
+        <label>Available equipment</label>
+        <div class="chip-row" id="equipment-chips">
+          <button type="button" class="chip" data-value="Bodyweight">Bodyweight</button>
+          <button type="button" class="chip" data-value="Dumbbells">Dumbbells</button>
+          <button type="button" class="chip" data-value="Barbell">Barbell</button>
+          <button type="button" class="chip" data-value="Kettlebell">Kettlebell</button>
+          <button type="button" class="chip" data-value="Resistance bands">Bands</button>
+          <button type="button" class="chip" data-value="Pull-up bar">Pull-up bar</button>
+        </div>
+      </div>
+
+      <div class="field">
+        <label for="extra-notes">Extra notes (optional)</label>
+        <textarea id="extra-notes" placeholder="e.g. I have knee pain, avoid jumps / I have only 30 minutes"></textarea>
+      </div>
+
+      <div class="btn-row">
+        <button id="btn-build" class="btn btn-primary">Generate workout with AI</button>
+      </div>
+
+      <div id="build-status" class="status-text"></div>
+
+      <h3 style="margin-top: 1rem; font-size: 1rem;">Your workout</h3>
+      <div id="build-output" class="ai-box empty">
+        Your personalised workout will appear here.
+      </div>
+    </div>
+  </section>
+</main>
+
+<script type="module">
+  import {
+    callGymBuddyAI,
+    buildWorkoutPrompt
+  } from "./assets/js/ai.js";
+  import { recordWorkoutBuilt } from "./assets/js/storage.js";
+
+  const chipsContainer = document.getElementById("equipment-chips");
+  const levelSel = document.getElementById("level");
+  const goalSel = document.getElementById("goal");
+  const focusSel = document.getElementById("focus");
+  const notes = document.getElementById("extra-notes");
+
+  const btnBuild = document.getElementById("btn-build");
+  const buildStatus = document.getElementById("build-status");
+  const buildOutput = document.getElementById("build-output");
+
+  chipsContainer.addEventListener("click", (e) => {
+    const chip = e.target.closest(".chip");
+    if (!chip) return;
+    chip.classList.toggle("selected");
+  });
+
+  btnBuild.addEventListener("click", async () => {
+    const selectedEquipment = Array.from(
+      chipsContainer.querySelectorAll(".chip.selected")
+    ).map((chip) => chip.dataset.value);
+
+    const level = levelSel.value;
+    const goal = goalSel.value;
+    const focus = focusSel.value;
+
+    btnBuild.disabled = true;
+    buildStatus.textContent = "Asking Gym Buddy AI to build your workout...";
+    buildOutput.classList.remove("empty");
+    buildOutput.textContent = "";
+
+    try {
+      let prompt = buildWorkoutPrompt({
+        level,
+        goal,
+        equipment: selectedEquipment.length ? selectedEquipment : ["Bodyweight"],
+        muscle: focus
+      });
+
+      if (notes.value.trim()) {
+        prompt += "\n\nUser extra notes:\n" + notes.value.trim();
+      }
+
+      const reply = await callGymBuddyAI(prompt, "builder");
+      buildOutput.textContent = reply;
+      buildStatus.textContent = "Workout generated ✔";
+
+      recordWorkoutBuilt();
+    } catch (err) {
+      buildOutput.textContent = "Could not generate a workout. Try again.";
+      buildStatus.textContent = err.message;
+    } finally {
+      btnBuild.disabled = false;
+    }
+  });
+</script>
+</body>
+</html>

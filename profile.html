@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Gym Buddy – Profile</title>
+  <link rel="stylesheet" href="assets/css/style.css" />
+</head>
+<body>
+<header>
+  <div class="navbar">
+    <a href="index.html" class="brand">
+      <div class="brand-pill">GB</div>
+      <span>Gym Buddy</span>
+    </a>
+    <nav>
+      <ul>
+        <li><a href="index.html">Home</a></li>
+        <li><a href="build-workout.html">Build workout</a></li>
+        <li><a href="workouts.html">Workouts</a></li>
+        <li><a href="programs.html">Programs</a></li>
+        <li><a href="challenges.html">Challenges</a></li>
+        <li><a href="tools.html">Tools</a></li>
+        <li><a href="profile.html" class="active">Profile</a></li>
+      </ul>
+    </nav>
+  </div>
+</header>
+
+<main>
+  <h1 class="page-title">Your training snapshot</h1>
+  <p class="page-subtitle">
+    Simple stats based on what you have done in this browser.
+  </p>
+
+  <section class="grid">
+    <article class="card">
+      <div class="card-header">
+        <h2 class="card-title">Overview</h2>
+        <span class="badge">Stats</span>
+      </div>
+      <div class="card-body">
+        <p id="stat-workouts-built">Workouts built with AI: –</p>
+        <p id="stat-workouts-completed">Workouts marked completed: –</p>
+        <p class="status-text">
+          These numbers reset if you clear your browser storage.
+        </p>
+      </div>
+    </article>
+
+    <article class="card">
+      <div class="card-header">
+        <h2 class="card-title">Challenge progress</h2>
+        <span class="badge">Push-ups</span>
+      </div>
+      <div class="card-body">
+        <p id="challenge-progress-text">
+          Loading push-up challenge progress...
+        </p>
+        <div class="progress">
+          <div class="progress-inner" id="challenge-progress-bar"></div>
+        </div>
+        <p class="status-text" style="margin-top: 0.6rem;">
+          Update your daily checkboxes in the Challenges page.
+        </p>
+      </div>
+    </article>
+  </section>
+</main>
+
+<script type="module">
+  import { getStats } from "./assets/js/storage.js";
+
+  const stats = getStats();
+  document.getElementById("stat-workouts-built").textContent =
+    `Workouts built with AI: ${stats.workoutsBuilt}`;
+  document.getElementById("stat-workouts-completed").textContent =
+    `Workouts marked completed: ${stats.workoutsCompleted}`;
+
+  const challengeText = document.getElementById("challenge-progress-text");
+  const challengeBar = document.getElementById("challenge-progress-bar");
+
+  let percent = 0;
+  try {
+    const raw = localStorage.getItem("gymBuddyPushupChallenge");
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (parsed && Array.isArray(parsed.days)) {
+        const total = parsed.days.length || 30;
+        const done = parsed.days.filter(Boolean).length;
+        percent = Math.round((done / total) * 100);
+        challengeText.textContent = `${done} / ${total} challenge days completed (${percent}%).`;
+      } else {
+        challengeText.textContent = "You have not started the push-up challenge yet.";
+      }
+    } else {
+      challengeText.textContent = "You have not started the push-up challenge yet.";
+    }
+  } catch {
+    challengeText.textContent = "Could not read challenge progress.";
+  }
+
+  challengeBar.style.width = percent + "%";
+</script>
+</body>
+</html>
