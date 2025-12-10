@@ -21,85 +21,159 @@
         <li><a href="challenges.html">Challenges</a></li>
         <li><a href="tools.html">Tools</a></li>
         <li><a href="profile.html" class="active">Profile</a></li>
+        <li><a href="#" id="logout-link">Logout</a></li>
       </ul>
     </nav>
   </div>
 </header>
 
 <main>
-  <h1 class="page-title">Your training snapshot</h1>
-  <p class="page-subtitle">
-    Simple stats based on what you have done in this browser.
+  <h1 class="page-title">Your training profile</h1>
+  <p class="page-subtitle" id="profile-subtitle">
+    Loading your stats...
   </p>
 
   <section class="grid">
     <article class="card">
       <div class="card-header">
         <h2 class="card-title">Overview</h2>
-        <span class="badge">Stats</span>
+        <span class="badge">Summary</span>
       </div>
       <div class="card-body">
-        <p id="stat-workouts-built">Workouts built with AI: –</p>
-        <p id="stat-workouts-completed">Workouts marked completed: –</p>
-        <p class="status-text">
-          These numbers reset if you clear your browser storage.
-        </p>
+        <p id="total-sessions">Total sessions: –</p>
+        <p id="total-weight">Total weight lifted: –</p>
+        <p id="best-day">Best day (most weight): –</p>
+        <p id="streak">Current streak: –</p>
       </div>
     </article>
 
     <article class="card">
       <div class="card-header">
-        <h2 class="card-title">Challenge progress</h2>
-        <span class="badge">Push-ups</span>
+        <h2 class="card-title">Recent sessions</h2>
+        <span class="badge">History</span>
       </div>
       <div class="card-body">
-        <p id="challenge-progress-text">
-          Loading push-up challenge progress...
-        </p>
-        <div class="progress">
-          <div class="progress-inner" id="challenge-progress-bar"></div>
-        </div>
-        <p class="status-text" style="margin-top: 0.6rem;">
-          Update your daily checkboxes in the Challenges page.
-        </p>
+        <table class="table">
+          <thead>
+          <tr>
+            <th>Date</th>
+            <th>Total weight (kg)</th>
+          </tr>
+          </thead>
+          <tbody id="recent-body"></tbody>
+        </table>
       </div>
     </article>
   </section>
 </main>
 
 <script type="module">
-  import { getStats } from "./assets/js/storage.js";
+  import { supabase, getCurrentUser } from "./assets/js/supabaseClient.js";
 
-  const stats = getStats();
-  document.getElementById("stat-workouts-built").textContent =
-    `Workouts built with AI: ${stats.workoutsBuilt}`;
-  document.getElementById("stat-workouts-completed").textContent =
-    `Workouts marked completed: ${stats.workoutsCompleted}`;
+  const subtitle = document.getElementById("profile-subtitle");
+  const logoutLink = document.getElementById("logout-link");
+  const totalSessionsEl = document.getElementById("total-sessions");
+  const totalWeightEl = document.getElementById("total-weight");
+  const bestDayEl = document.getElementById("best-day");
+  const streakEl = document.getElementById("streak");
+  const recentBody = document.getElementById("recent-body");
 
-  const challengeText = document.getElementById("challenge-progress-text");
-  const challengeBar = document.getElementById("challenge-progress-bar");
+  let currentUser = null;
 
-  let percent = 0;
-  try {
-    const raw = localStorage.getItem("gymBuddyPushupChallenge");
-    if (raw) {
-      const parsed = JSON.parse(raw);
-      if (parsed && Array.isArray(parsed.days)) {
-        const total = parsed.days.length || 30;
-        const done = parsed.days.filter(Boolean).length;
-        percent = Math.round((done / total) * 100);
-        challengeText.textContent = `${done} / ${total} challenge days completed (${percent}%).`;
-      } else {
-        challengeText.textContent = "You have not started the push-up challenge yet.";
-      }
-    } else {
-      challengeText.textContent = "You have not started the push-up challenge yet.";
+  (async () => {
+    currentUser = await getCurrentUser();
+    if (!currentUser) {
+      window.location.href = "login.html";
+      return;
     }
-  } catch {
-    challengeText.textContent = "Could not read challenge progress.";
+    subtitle.textContent = `Signed in as ${currentUser.email}`;
+    await loadStats();
+  })();
+
+  logoutLink.addEventListener("click", async (e) => {
+    e.preventDefault();
+    await supabase.auth.signOut();
+    window.location.href = "login.html";
+  });
+
+  function computeStreak(datesSet) {
+    let streak = 0;
+    const d = new Date();
+    while (true) {
+      const key = d.toISOString().slice(0, 10);
+      if (datesSet.has(key)) {
+        streak++;
+        d.setDate(d.getDate() - 1);
+      } else {
+        break;
+      }
+    }
+    return streak;
   }
 
-  challengeBar.style.width = percent + "%";
+  async function loadStats() {
+    const { data, error } = await supabase
+      .from("workout_sessions")
+      .select("*")
+      .eq("user_id", currentUser.id)
+      .order("session_date", { ascending: true });
+
+    if (error) {
+      console.error(error);
+      return;
+    }
+
+    if (!data.length) {
+      totalSessionsEl.textContent = "Total sessions: 0";
+      totalWeightEl.textContent = "Total weight lifted: 0 kg";
+      bestDayEl.textContent = "Best day: –";
+      streakEl.textContent = "Current streak: 0 days";
+      return;
+    }
+
+    const totalSessions = data.length;
+    const totalWeight = data.reduce(
+      (sum, row) => sum + Number(row.total_weight || 0),
+      0
+    );
+
+    let best = null;
+    const sessionsByDate = new Map();
+    const dateSet = new Set();
+
+    for (const row of data) {
+      const date = row.session_date;
+      const w = Number(row.total_weight || 0);
+      dateSet.add(date);
+      sessionsByDate.set(date, (sessionsByDate.get(date) || 0) + w);
+    }
+
+    for (const [date, w] of sessionsByDate.entries()) {
+      if (!best || w > best.weight) {
+        best = { date, weight: w };
+      }
+    }
+
+    const streak = computeStreak(dateSet);
+
+    totalSessionsEl.textContent = `Total sessions: ${totalSessions}`;
+    totalWeightEl.textContent = `Total weight lifted: ${totalWeight.toFixed(1)} kg`;
+    bestDayEl.textContent = best
+      ? `Best day: ${best.date} (${best.weight.toFixed(1)} kg)`
+      : "Best day: –";
+    streakEl.textContent = `Current streak: ${streak} day(s)`;
+
+    recentBody.innerHTML = "";
+    const recent = data.slice(-10).reverse();
+    for (const row of recent) {
+      const tr = document.createElement("tr");
+      tr.innerHTML = `
+        <td>${row.session_date}</td>
+        <td>${Number(row.total_weight || 0).toFixed(1)}</td>
+      `;
+      recentBody.appendChild(tr);
+    }
+  }
 </script>
 </body>
 </html>
