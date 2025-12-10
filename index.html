@@ -4,6 +4,7 @@
   <meta charset="UTF-8" />
   <title>Gym Buddy – Dashboard</title>
   <link rel="stylesheet" href="assets/css/style.css" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 <body>
 <header>
@@ -21,140 +22,217 @@
         <li><a href="challenges.html">Challenges</a></li>
         <li><a href="tools.html">Tools</a></li>
         <li><a href="profile.html">Profile</a></li>
+        <li><a href="#" id="logout-link">Logout</a></li>
       </ul>
     </nav>
   </div>
 </header>
 
 <main>
-  <h1 class="page-title">Welcome back, Gym Buddy 👊</h1>
-  <p class="page-subtitle">
-    Your personal AI-powered training partner. Start with a smart workout,
-    check your programs, or ask the coach anything.
+  <h1 class="page-title">Your training dashboard</h1>
+  <p class="page-subtitle" id="welcome-text">
+    Loading your data...
   </p>
 
   <section class="grid">
     <article class="card">
       <div class="card-header">
-        <h2 class="card-title">AI Workout of the Day</h2>
-        <span class="badge">AI generated</span>
-      </div>
-      <div class="card-body">
-        <p id="ai-wod-text" class="ai-box empty">
-          Click “Generate” to get a full-body workout suggestion for today.
-        </p>
-        <div class="btn-row">
-          <button id="btn-ai-wod" class="btn btn-primary">Generate workout</button>
-        </div>
-        <div id="ai-wod-status" class="status-text"></div>
-      </div>
-    </article>
-
-    <article class="card">
-      <div class="card-header">
-        <h2 class="card-title">Jump back in</h2>
-        <span class="badge">Shortcuts</span>
-      </div>
-      <div class="card-body">
-        <p>Pick where you want to continue:</p>
-        <div class="btn-row">
-          <a class="btn btn-outline" href="build-workout.html">Build a workout</a>
-          <a class="btn btn-outline" href="programs.html">View programs</a>
-          <a class="btn btn-outline" href="challenges.html">Daily challenge</a>
-          <a class="btn btn-outline" href="guides.html">Training guides</a>
-        </div>
-      </div>
-    </article>
-
-    <article class="card">
-      <div class="card-header">
-        <h2 class="card-title">Ask the AI coach</h2>
-        <span class="badge">Beta</span>
+        <h2 class="card-title">Log today’s session</h2>
+        <span class="badge">Tracking</span>
       </div>
       <div class="card-body">
         <div class="field">
-          <label for="coach-question">
-            Ask anything (e.g. “How many days per week should I train as a beginner?”)
+          <label for="session-weight">
+            Total weight lifted today (kg, rough estimate)
           </label>
-          <textarea id="coach-question" placeholder="Type your question here..."></textarea>
+          <input id="session-weight" type="number" min="0" />
         </div>
         <div class="btn-row">
-          <button id="btn-coach" class="btn btn-primary">Ask coach</button>
+          <button id="btn-save-session" class="btn btn-primary">
+            Save session
+          </button>
         </div>
-        <div id="coach-status" class="status-text"></div>
-        <div id="coach-answer" class="ai-box empty">
-          The answer will appear here.
-        </div>
+        <div id="log-status" class="status-text"></div>
+      </div>
+    </article>
+
+    <article class="card">
+      <div class="card-header">
+        <h2 class="card-title">This week</h2>
+        <span class="badge">Stats</span>
+      </div>
+      <div class="card-body">
+        <p id="sessions-this-week">Sessions this week: –</p>
+        <p id="trend-text">Trend: –</p>
+      </div>
+    </article>
+  </section>
+
+  <section class="grid" style="margin-top: 1.5rem;">
+    <article class="card">
+      <div class="card-header">
+        <h2 class="card-title">Weight lifted over time</h2>
+        <span class="badge">Progress</span>
+      </div>
+      <div class="card-body">
+        <canvas id="weightChart" height="160"></canvas>
+      </div>
+    </article>
+
+    <article class="card">
+      <div class="card-header">
+        <h2 class="card-title">Sessions per day (last 7 days)</h2>
+        <span class="badge">Consistency</span>
+      </div>
+      <div class="card-body">
+        <canvas id="sessionsChart" height="160"></canvas>
       </div>
     </article>
   </section>
 </main>
 
 <script type="module">
-  import {
-    callGymBuddyAI,
-    buildWorkoutPrompt,
-    buildCoachPrompt
-  } from "./assets/js/ai.js";
+  import { supabase, getCurrentUser } from "./assets/js/supabaseClient.js";
 
-  const wodBtn = document.getElementById("btn-ai-wod");
-  const wodText = document.getElementById("ai-wod-text");
-  const wodStatus = document.getElementById("ai-wod-status");
+  const welcomeText = document.getElementById("welcome-text");
+  const logoutLink = document.getElementById("logout-link");
+  const btnSave = document.getElementById("btn-save-session");
+  const weightInput = document.getElementById("session-weight");
+  const logStatus = document.getElementById("log-status");
+  const sessionsThisWeekEl = document.getElementById("sessions-this-week");
+  const trendTextEl = document.getElementById("trend-text");
 
-  const coachBtn = document.getElementById("btn-coach");
-  const coachQuestion = document.getElementById("coach-question");
-  const coachStatus = document.getElementById("coach-status");
-  const coachAnswer = document.getElementById("coach-answer");
+  let currentUser = null;
+  let weightChart = null;
+  let sessionsChart = null;
 
-  wodBtn?.addEventListener("click", async () => {
-    wodBtn.disabled = true;
-    wodStatus.textContent = "Asking Gym Buddy AI...";
-    wodText.classList.remove("empty");
-    wodText.textContent = "";
+  (async () => {
+    currentUser = await getCurrentUser();
+    if (!currentUser) {
+      window.location.href = "login.html";
+      return;
+    }
+    welcomeText.textContent = `Welcome back, ${currentUser.email}`;
+    await loadCharts();
+  })();
 
-    try {
-      const prompt = buildWorkoutPrompt({
-        level: "Beginner–intermediate",
-        goal: "General fitness & strength",
-        equipment: ["Bodyweight"],
-        muscle: "Full body"
+  logoutLink.addEventListener("click", async (e) => {
+    e.preventDefault();
+    await supabase.auth.signOut();
+    window.location.href = "login.html";
+  });
+
+  btnSave.addEventListener("click", async () => {
+    const w = parseFloat(weightInput.value);
+    if (Number.isNaN(w) || w <= 0) {
+      logStatus.textContent = "Please enter a valid weight.";
+      return;
+    }
+    logStatus.textContent = "Saving...";
+    const today = new Date().toISOString().slice(0, 10);
+
+    const { error } = await supabase
+      .from("workout_sessions")
+      .insert({
+        user_id: currentUser.id,
+        session_date: today,
+        total_weight: w
       });
 
-      const reply = await callGymBuddyAI(prompt, "wod");
-      wodText.textContent = reply;
-      wodStatus.textContent = "Done ✔";
-    } catch (err) {
-      wodText.textContent = "Something went wrong while talking to the AI.";
-      wodStatus.textContent = err.message;
-    } finally {
-      wodBtn.disabled = false;
+    if (error) {
+      console.error(error);
+      logStatus.textContent = "Error saving session.";
+    } else {
+      logStatus.textContent = "Session saved!";
+      weightInput.value = "";
+      await loadCharts();
     }
   });
 
-  coachBtn?.addEventListener("click", async () => {
-    const q = coachQuestion.value.trim();
-    if (!q) {
-      coachStatus.textContent = "Please type a question first.";
+  async function loadCharts() {
+    const { data, error } = await supabase
+      .from("workout_sessions")
+      .select("*")
+      .eq("user_id", currentUser.id)
+      .order("session_date", { ascending: true });
+
+    if (error) {
+      console.error(error);
       return;
     }
 
-    coachBtn.disabled = true;
-    coachStatus.textContent = "Thinking...";
-    coachAnswer.classList.remove("empty");
-    coachAnswer.textContent = "";
+    const labels = data.map((row) => row.session_date);
+    const weights = data.map((row) => Number(row.total_weight || 0));
 
-    try {
-      const prompt = buildCoachPrompt(q);
-      const reply = await callGymBuddyAI(prompt, "coach");
-      coachAnswer.textContent = reply;
-      coachStatus.textContent = "Answer ready ✔";
-    } catch (err) {
-      coachAnswer.textContent = "Could not get an answer from the AI.";
-      coachStatus.textContent = err.message;
-    } finally {
-      coachBtn.disabled = false;
+    const ctx1 = document.getElementById("weightChart").getContext("2d");
+    if (weightChart) weightChart.destroy();
+    weightChart = new Chart(ctx1, {
+      type: "line",
+      data: {
+        labels,
+        datasets: [
+          {
+            label: "Total weight (kg)",
+            data: weights
+          }
+        ]
+      },
+      options: {
+        scales: {
+          y: { beginAtZero: true }
+        }
+      }
+    });
+
+    const now = new Date();
+    const last7 = [];
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date(now);
+      d.setDate(d.getDate() - i);
+      last7.push(d.toISOString().slice(0, 10));
     }
-  });
+
+    const counts = last7.map((day) =>
+      data.filter((row) => row.session_date === day).length
+    );
+
+    const ctx2 = document.getElementById("sessionsChart").getContext("2d");
+    if (sessionsChart) sessionsChart.destroy();
+    sessionsChart = new Chart(ctx2, {
+      type: "bar",
+      data: {
+        labels: last7,
+        datasets: [
+          {
+            label: "Sessions",
+            data: counts
+          }
+        ]
+      },
+      options: {
+        scales: {
+          y: { beginAtZero: true, ticks: { stepSize: 1 } }
+        }
+      }
+    });
+
+    const sessionsThisWeek = counts.reduce((a, b) => a + b, 0);
+    sessionsThisWeekEl.textContent = `Sessions this week: ${sessionsThisWeek}`;
+
+    if (weights.length >= 6) {
+      const last3 = weights.slice(-3).reduce((a, b) => a + b, 0) / 3;
+      const prev3 = weights.slice(-6, -3).reduce((a, b) => a + b, 0) / 3;
+      if (last3 > prev3 + 1) {
+        trendTextEl.textContent = "Trend: going up 🔼";
+      } else if (last3 < prev3 - 1) {
+        trendTextEl.textContent = "Trend: going down 🔽";
+      } else {
+        trendTextEl.textContent = "Trend: stable ➖";
+      }
+    } else {
+      trendTextEl.textContent = "Trend: not enough data yet.";
+    }
+  }
 </script>
 </body>
 </html>
