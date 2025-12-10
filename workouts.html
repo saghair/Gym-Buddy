@@ -68,6 +68,7 @@
 
 <script type="module">
   import { recordWorkoutCompleted } from "./assets/js/storage.js";
+  import { supabase, getCurrentUser } from "./assets/js/supabaseClient.js";
 
   const workouts = [
     {
@@ -141,6 +142,12 @@
   const equipFilter = document.getElementById("filter-equipment");
   const countEl = document.getElementById("workout-count");
 
+  let currentUser = null;
+  (async () => {
+    currentUser = await getCurrentUser();
+    // We don't force login here, but if logged in we log to Supabase.
+  })();
+
   function renderWorkouts() {
     const diff = diffFilter.value;
     const equip = equipFilter.value;
@@ -182,13 +189,23 @@
   diffFilter.addEventListener("change", renderWorkouts);
   equipFilter.addEventListener("change", renderWorkouts);
 
-  listEl.addEventListener("click", (e) => {
+  listEl.addEventListener("click", async (e) => {
     const btn = e.target.closest("button[data-complete]");
     if (!btn) return;
 
     btn.disabled = true;
     btn.textContent = "Completed ✔";
     recordWorkoutCompleted();
+
+    // Auto-log a session in Supabase if user is logged in
+    if (currentUser) {
+      const today = new Date().toISOString().slice(0, 10);
+      await supabase.from("workout_sessions").insert({
+        user_id: currentUser.id,
+        session_date: today,
+        total_weight: 0 // user can add real weight later from dashboard
+      });
+    }
   });
 
   renderWorkouts();
