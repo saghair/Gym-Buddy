@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Saved Workouts</title>
+  <link rel="stylesheet" href="assets/css/style.css">
+</head>
+<body>
+<header>
+  <div class="navbar">
+    <a href="index.html" class="brand">
+      <div class="brand-pill">GB</div><span>Gym Buddy</span>
+    </a>
+  </div>
+</header>
+
+<main>
+  <h1 class="page-title">Saved Workouts</h1>
+  <section id="list" class="grid"></section>
+</main>
+
+<script type="module">
+import { supabase, getCurrentUser } from "./assets/js/supabaseClient.js";
+
+const list = document.getElementById("list");
+
+(async () => {
+  const user = await getCurrentUser();
+  if (!user) location.href = "login.html";
+
+  const { data } = await supabase
+    .from("ai_workouts")
+    .select("*")
+    .eq("user_id", user.id)
+    .order("created_at", { ascending: false });
+
+  data.forEach(row => {
+    const w = JSON.parse(row.workout_json);
+    const card = document.createElement("article");
+    card.className = "card";
+    card.style.gridColumn = "1 / -1";
+    card.innerHTML = `
+      <div class="card-header">
+        <h2 class="card-title">${w.title}</h2>
+      </div>
+      <div class="card-body">
+        ${w.exercises.map(ex => `
+          <div class="video-frame">
+            <iframe src="https://www.youtube.com/embed?listType=search&list=${encodeURIComponent(ex.videoQuery)}"></iframe>
+          </div>
+          <strong>${ex.name}</strong><br><br>
+        `).join("")}
+      </div>
+    `;
+    list.appendChild(card);
+  });
+})();
+</script>
+</body>
+</html>
