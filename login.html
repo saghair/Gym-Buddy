@@ -2,6 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Gym Buddy – Login</title>
   <link rel="stylesheet" href="assets/css/style.css" />
 </head>
@@ -31,54 +32,182 @@
       <h2 class="card-title">Sign in / Sign up</h2>
       <span class="badge">Supabase Auth</span>
     </div>
+
     <div class="card-body">
+      <!-- IMPORTANT: no <form> tag to avoid refresh issues -->
       <div class="form-row">
-        <div class="field">
-          <label>Email</label>
-          <input id="email" type="email" />
+        <div class="field" style="flex: 1;">
+          <label for="email">Email</label>
+          <input id="email" type="email" autocomplete="email" placeholder="you@example.com" />
         </div>
-        <div class="field">
-          <label>Password</label>
-          <input id="password" type="password" />
+
+        <div class="field" style="flex: 1;">
+          <label for="password">Password</label>
+          <input id="password" type="password" autocomplete="current-password" placeholder="••••••••" />
+          <div style="margin-top: 8px; display:flex; gap:10px; align-items:center;">
+            <input id="togglePass" type="checkbox" />
+            <label for="togglePass" style="margin:0; cursor:pointer;">Show password</label>
+          </div>
         </div>
       </div>
-      <div class="btn-row">
-        <button id="btn-login" class="btn btn-primary">Log in</button>
-        <button id="btn-signup" class="btn btn-outline">Sign up</button>
+
+      <div class="btn-row" style="margin-top: 14px;">
+        <button id="btn-login" type="button" class="btn btn-primary">Log in</button>
+        <button id="btn-signup" type="button" class="btn btn-outline">Sign up</button>
       </div>
-      <div id="auth-status" class="status-text"></div>
+
+      <div id="auth-status" class="status-text" style="margin-top: 12px;"></div>
+
+      <div style="margin-top: 12px; opacity: 0.8; font-size: 0.95rem;">
+        <div><strong>Status:</strong> <span id="debug-status">Checking…</span></div>
+        <div style="margin-top:6px;">
+          <button id="btn-logout" type="button" class="btn btn-outline" style="display:none;">Log out</button>
+          <button id="btn-go-dashboard" type="button" class="btn btn-primary" style="display:none;">Go to dashboard</button>
+        </div>
+      </div>
     </div>
   </section>
 </main>
 
 <script type="module">
-  import { supabase, getCurrentUser } from "./assets/js/supabaseClient.js";
+  // Show errors on the page (no silent failures)
+  const statusEl = document.getElementById("auth-status");
+  const debugEl = document.getElementById("debug-status");
 
-  const email = document.getElementById("email");
-  const password = document.getElementById("password");
-  const status = document.getElementById("auth-status");
+  window.addEventListener("error", (e) => {
+    statusEl.textContent = "JS error: " + (e.message || "Check console");
+  });
+  window.addEventListener("unhandledrejection", (e) => {
+    statusEl.textContent = "Promise error: " + (e.reason?.message || "Check console");
+  });
 
-  (async () => {
-    const user = await getCurrentUser();
-    if (user) window.location.href = "index.html";
-  })();
+  // DOM elements
+  const emailEl = document.getElementById("email");
+  const passEl = document.getElementById("password");
+  const btnLogin = document.getElementById("btn-login");
+  const btnSignup = document.getElementById("btn-signup");
+  const togglePass = document.getElementById("togglePass");
+  const btnLogout = document.getElementById("btn-logout");
+  const btnGoDashboard = document.getElementById("btn-go-dashboard");
 
-  document.getElementById("btn-login").onclick = async () => {
-    status.textContent = "Logging in...";
-    const { error } = await supabase.auth.signInWithPassword({
-      email: email.value,
-      password: password.value
-    });
-    if (error) status.textContent = error.message;
-    else window.location.href = "index.html";
-  };
+  togglePass.addEventListener("change", () => {
+    passEl.type = togglePass.checked ? "text" : "password";
+  });
 
-  document.getElementById("btn-signup").onclick = async () => {
-    status.textContent = "Signing up...";
-    const { error } = await supabase.auth.signUp({
-      email: email.value,
-      password: password.value
-    });
-    stat
+  // Import Supabase client
+  let supabase, getCurrentUser;
+
+  try {
+    ({ supabase, getCurrentUser } = await import("./assets/js/supabaseClient.js"));
+  } catch (err) {
+    statusEl.textContent =
+      "Could not load Supabase client. Check that /assets/js/supabaseClient.js exists and is deployed.";
+    debugEl.textContent = "Supabase client NOT loaded ❌";
+    console.error(err);
+    throw err;
   }
 
+  debugEl.textContent = "Supabase client loaded ✅";
+
+  function setBusy(isBusy) {
+    btnLogin.disabled = isBusy;
+    btnSignup.disabled = isBusy;
+    btnLogout.disabled = isBusy;
+    btnGoDashboard.disabled = isBusy;
+  }
+
+  function show(msg, isError = false) {
+    statusEl.textContent = msg;
+    statusEl.style.opacity = "1";
+  }
+
+  // Check session on load
+  async function refreshSessionUI() {
+    const user = await getCurrentUser();
+    if (user) {
+      debugEl.textContent = "Signed in as " + user.email + " ✅";
+      btnLogout.style.display = "inline-block";
+      btnGoDashboard.style.display = "inline-block";
+    } else {
+      debugEl.textContent = "Not signed in";
+      btnLogout.style.display = "none";
+      btnGoDashboard.style.display = "none";
+    }
+  }
+
+  await refreshSessionUI();
+
+  btnGoDashboard.addEventListener("click", () => {
+    window.location.href = "index.html";
+  });
+
+  btnLogout.addEventListener("click", async () => {
+    setBusy(true);
+    show("Logging out…");
+    await supabase.auth.signOut();
+    show("Logged out.");
+    setBusy(false);
+    await refreshSessionUI();
+  });
+
+  // Login
+  btnLogin.addEventListener("click", async () => {
+    const email = (emailEl.value || "").trim();
+    const password = passEl.value || "";
+
+    if (!email || !password) {
+      show("Please enter email and password.", true);
+      return;
+    }
+
+    setBusy(true);
+    show("Signing in…");
+
+    const { error } = await supabase.auth.signInWithPassword({ email, password });
+
+    if (error) {
+      show("Login failed: " + error.message, true);
+      setBusy(false);
+      return;
+    }
+
+    show("Logged in! Redirecting…");
+    await refreshSessionUI();
+    setBusy(false);
+
+    // small delay so user sees message
+    setTimeout(() => (window.location.href = "index.html"), 300);
+  });
+
+  // Signup
+  btnSignup.addEventListener("click", async () => {
+    const email = (emailEl.value || "").trim();
+    const password = passEl.value || "";
+
+    if (!email || !password) {
+      show("Please enter email and password.", true);
+      return;
+    }
+    if (password.length < 6) {
+      show("Password must be at least 6 characters.", true);
+      return;
+    }
+
+    setBusy(true);
+    show("Creating account…");
+
+    const { error } = await supabase.auth.signUp({ email, password });
+
+    if (error) {
+      show("Sign up failed: " + error.message, true);
+      setBusy(false);
+      return;
+    }
+
+    show("Account created. If email confirmation is enabled, check your inbox.");
+    setBusy(false);
+    await refreshSessionUI();
+  });
+</script>
+</body>
+</html>
