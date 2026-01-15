@@ -29,11 +29,47 @@
 
 <main>
   <h1 class="page-title">Your training profile</h1>
-  <p class="page-subtitle" id="profile-subtitle">
-    Loading your stats...
-  </p>
+  <p class="page-subtitle" id="profile-subtitle">Loading your stats...</p>
 
   <section class="grid">
+    <article class="card">
+      <div class="card-header">
+        <h2 class="card-title">Body & goal</h2>
+        <span class="badge">Personal</span>
+      </div>
+      <div class="card-body">
+        <p style="margin-top:0;">
+          This makes your Home page suggestions smarter and more automatic.
+        </p>
+
+        <div class="form-row">
+          <div class="field">
+            <label for="weightKg">Your body weight (kg)</label>
+            <input id="weightKg" type="number" min="30" max="250" step="0.1" />
+          </div>
+
+          <div class="field">
+            <label for="goalSel">Main goal</label>
+            <select id="goalSel">
+              <option value="">Choose…</option>
+              <option>Build muscle</option>
+              <option>Lose fat</option>
+              <option>Improve strength</option>
+              <option>General fitness</option>
+              <option>Improve endurance</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="btn-row">
+          <button id="btn-save-profile" class="btn btn-primary">Save</button>
+          <a class="btn btn-outline" href="index.html">Back to Home</a>
+        </div>
+
+        <div id="profile-save-status" class="status-text"></div>
+      </div>
+    </article>
+
     <article class="card">
       <div class="card-header">
         <h2 class="card-title">Overview</h2>
@@ -47,7 +83,7 @@
       </div>
     </article>
 
-    <article class="card">
+    <article class="card" style="grid-column: 1 / -1;">
       <div class="card-header">
         <h2 class="card-title">Recent sessions</h2>
         <span class="badge">History</span>
@@ -69,9 +105,16 @@
 
 <script type="module">
   import { supabase, getCurrentUser } from "./assets/js/supabaseClient.js";
+  import { toast, setButtonLoading } from "./assets/js/ui.js";
 
   const subtitle = document.getElementById("profile-subtitle");
   const logoutLink = document.getElementById("logout-link");
+
+  const weightKgEl = document.getElementById("weightKg");
+  const goalSel = document.getElementById("goalSel");
+  const btnSaveProfile = document.getElementById("btn-save-profile");
+  const profileSaveStatus = document.getElementById("profile-save-status");
+
   const totalSessionsEl = document.getElementById("total-sessions");
   const totalWeightEl = document.getElementById("total-weight");
   const bestDayEl = document.getElementById("best-day");
@@ -86,7 +129,9 @@
       window.location.href = "login.html";
       return;
     }
+
     subtitle.textContent = `Signed in as ${currentUser.email}`;
+    await loadProfile();
     await loadStats();
   })();
 
@@ -95,6 +140,62 @@
     await supabase.auth.signOut();
     window.location.href = "login.html";
   });
+
+  btnSaveProfile.addEventListener("click", async () => {
+    const weight = weightKgEl.value ? Number(weightKgEl.value) : null;
+    const goal = (goalSel.value || "").trim();
+
+    if (weight !== null && (Number.isNaN(weight) || weight <= 0)) {
+      toast("Invalid weight", "Please enter a valid body weight in kg.", "warn");
+      return;
+    }
+
+    setButtonLoading(btnSaveProfile, true, "Saving...");
+    profileSaveStatus.textContent = "Saving profile...";
+
+    const payload = {
+      user_id: currentUser.id,
+      weight_kg: weight,
+      goal: goal || null,
+      updated_at: new Date().toISOString()
+    };
+
+    const { error } = await supabase
+      .from("user_profiles")
+      .upsert(payload);
+
+    setButtonLoading(btnSaveProfile, false);
+
+    if (error) {
+      console.error(error);
+      toast("Save failed", "Could not save profile. Check table/RLS.", "bad");
+      profileSaveStatus.textContent = "Error saving profile.";
+      return;
+    }
+
+    toast("Saved", "Profile updated successfully.", "good");
+    profileSaveStatus.textContent = "Saved ✔";
+  });
+
+  async function loadProfile() {
+    const { data, error } = await supabase
+      .from("user_profiles")
+      .select("*")
+      .eq("user_id", currentUser.id)
+      .single();
+
+    if (error) {
+      // If no profile row yet, that's fine.
+      return;
+    }
+
+    if (data?.weight_kg !== null && data?.weight_kg !== undefined) {
+      weightKgEl.value = Number(data.weight_kg);
+    }
+    if (data?.goal) {
+      goalSel.value = data.goal;
+    }
+  }
 
   function computeStreak(datesSet) {
     let streak = 0;
@@ -120,6 +221,7 @@
 
     if (error) {
       console.error(error);
+      toast("Error", "Could not load workout history.", "bad");
       return;
     }
 
@@ -128,14 +230,12 @@
       totalWeightEl.textContent = "Total weight lifted: 0 kg";
       bestDayEl.textContent = "Best day: –";
       streakEl.textContent = "Current streak: 0 days";
+      recentBody.innerHTML = "";
       return;
     }
 
     const totalSessions = data.length;
-    const totalWeight = data.reduce(
-      (sum, row) => sum + Number(row.total_weight || 0),
-      0
-    );
+    const totalWeight = data.reduce((sum, row) => sum + Number(row.total_weight || 0), 0);
 
     let best = null;
     const sessionsByDate = new Map();
@@ -149,20 +249,17 @@
     }
 
     for (const [date, w] of sessionsByDate.entries()) {
-      if (!best || w > best.weight) {
-        best = { date, weight: w };
-      }
+      if (!best || w > best.weight) best = { date, weight: w };
     }
 
     const streak = computeStreak(dateSet);
 
     totalSessionsEl.textContent = `Total sessions: ${totalSessions}`;
     totalWeightEl.textContent = `Total weight lifted: ${totalWeight.toFixed(1)} kg`;
-    bestDayEl.textContent = best
-      ? `Best day: ${best.date} (${best.weight.toFixed(1)} kg)`
-      : "Best day: –";
+    bestDayEl.textContent = best ? `Best day: ${best.date} (${best.weight.toFixed(1)} kg)` : "Best day: –";
     streakEl.textContent = `Current streak: ${streak} day(s)`;
 
+    // Recent table
     recentBody.innerHTML = "";
     const recent = data.slice(-10).reverse();
     for (const row of recent) {
