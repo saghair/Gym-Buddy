@@ -30,9 +30,7 @@
 
 <main>
   <h1 class="page-title">Your training dashboard</h1>
-  <p class="page-subtitle" id="welcome-text">
-    Loading your data...
-  </p>
+  <p class="page-subtitle" id="welcome-text">Loading your data...</p>
 
   <section class="grid">
     <article class="card">
@@ -42,15 +40,12 @@
       </div>
       <div class="card-body">
         <div class="field">
-          <label for="session-weight">
-            Total weight lifted today (kg, rough estimate)
-          </label>
+          <label for="session-weight">Total weight lifted today (kg, rough estimate)</label>
           <input id="session-weight" type="number" min="0" />
         </div>
         <div class="btn-row">
-          <button id="btn-save-session" class="btn btn-primary">
-            Save session
-          </button>
+          <button id="btn-save-session" class="btn btn-primary">Save session</button>
+          <button id="btn-refresh-suggestions" class="btn btn-outline">Refresh suggestions</button>
         </div>
         <div id="log-status" class="status-text"></div>
       </div>
@@ -64,11 +59,41 @@
       <div class="card-body">
         <p id="sessions-this-week">Sessions this week: –</p>
         <p id="trend-text">Trend: –</p>
+        <p id="due-text">Due check: –</p>
+        <div class="progress" aria-label="Weekly completion bar">
+          <div class="progress-inner" id="week-bar"></div>
+        </div>
+        <div class="status-text" id="week-hint"></div>
       </div>
     </article>
   </section>
 
-  <section class="grid" style="margin-top: 1.5rem;">
+  <section class="grid" style="margin-top: 1.1rem;">
+    <article class="card" style="grid-column: 1 / -1;">
+      <div class="card-header">
+        <h2 class="card-title">Smart suggestions</h2>
+        <span class="badge">AI Coach</span>
+      </div>
+      <div class="card-body">
+        <p id="suggestions-sub" class="status-text" style="margin-top:0;">
+          Based on your last workout + your goal + your body weight.
+        </p>
+
+        <div id="suggestions-box" class="ai-box skeleton" style="min-height: 180px;">
+          Loading suggestions...
+        </div>
+
+        <div class="btn-row">
+          <button id="btn-save-suggestion" class="btn btn-primary">Save this workout</button>
+          <a href="profile.html" class="btn btn-outline">Update weight / goal</a>
+        </div>
+
+        <div id="save-suggestion-status" class="status-text"></div>
+      </div>
+    </article>
+  </section>
+
+  <section class="grid" style="margin-top: 1.2rem;">
     <article class="card">
       <div class="card-header">
         <h2 class="card-title">Weight lifted over time</h2>
@@ -93,18 +118,32 @@
 
 <script type="module">
   import { supabase, getCurrentUser } from "./assets/js/supabaseClient.js";
+  import { callGymBuddyAI, buildSuggestionsPrompt } from "./assets/js/ai.js";
+  import { toast, setButtonLoading, daysBetween } from "./assets/js/ui.js";
 
   const welcomeText = document.getElementById("welcome-text");
   const logoutLink = document.getElementById("logout-link");
   const btnSave = document.getElementById("btn-save-session");
+  const btnRefresh = document.getElementById("btn-refresh-suggestions");
   const weightInput = document.getElementById("session-weight");
   const logStatus = document.getElementById("log-status");
+
   const sessionsThisWeekEl = document.getElementById("sessions-this-week");
   const trendTextEl = document.getElementById("trend-text");
+  const dueTextEl = document.getElementById("due-text");
+  const weekBar = document.getElementById("week-bar");
+  const weekHint = document.getElementById("week-hint");
+
+  const suggestionsBox = document.getElementById("suggestions-box");
+  const btnSaveSuggestion = document.getElementById("btn-save-suggestion");
+  const saveSuggestionStatus = document.getElementById("save-suggestion-status");
 
   let currentUser = null;
   let weightChart = null;
   let sessionsChart = null;
+
+  let cachedSuggestionText = "";
+  let cachedNextWorkoutTitle = "";
 
   (async () => {
     currentUser = await getCurrentUser();
@@ -113,7 +152,8 @@
       return;
     }
     welcomeText.textContent = `Welcome back, ${currentUser.email}`;
-    await loadCharts();
+    await loadChartsAndStats();
+    await loadSmartSuggestions();
   })();
 
   logoutLink.addEventListener("click", async (e) => {
@@ -125,31 +165,73 @@
   btnSave.addEventListener("click", async () => {
     const w = parseFloat(weightInput.value);
     if (Number.isNaN(w) || w <= 0) {
+      toast("Invalid input", "Please enter a valid weight number.", "warn");
       logStatus.textContent = "Please enter a valid weight.";
       return;
     }
-    logStatus.textContent = "Saving...";
-    const today = new Date().toISOString().slice(0, 10);
 
+    setButtonLoading(btnSave, true, "Saving...");
+    logStatus.textContent = "Saving...";
+
+    const today = new Date().toISOString().slice(0, 10);
     const { error } = await supabase
       .from("workout_sessions")
-      .insert({
-        user_id: currentUser.id,
-        session_date: today,
-        total_weight: w
-      });
+      .insert({ user_id: currentUser.id, session_date: today, total_weight: w });
 
     if (error) {
       console.error(error);
+      toast("Save failed", "Could not save session. Check your Supabase table/RLS.", "bad");
       logStatus.textContent = "Error saving session.";
-    } else {
-      logStatus.textContent = "Session saved!";
-      weightInput.value = "";
-      await loadCharts();
+      setButtonLoading(btnSave, false);
+      return;
     }
+
+    toast("Saved", "Session logged successfully.", "good");
+    logStatus.textContent = "Session saved!";
+    weightInput.value = "";
+
+    setButtonLoading(btnSave, false);
+    await loadChartsAndStats();
+    await loadSmartSuggestions(true);
   });
 
-  async function loadCharts() {
+  btnRefresh.addEventListener("click", async () => {
+    await loadSmartSuggestions(true);
+  });
+
+  btnSaveSuggestion.addEventListener("click", async () => {
+    if (!cachedSuggestionText) {
+      toast("Nothing to save", "Generate suggestions first.", "warn");
+      return;
+    }
+
+    setButtonLoading(btnSaveSuggestion, true, "Saving...");
+    saveSuggestionStatus.textContent = "Saving this workout to your account...";
+
+    const title = cachedNextWorkoutTitle || "AI Workout";
+
+    const { error } = await supabase
+      .from("ai_workouts")
+      .insert({
+        user_id: currentUser.id,
+        title,
+        content: cachedSuggestionText
+      });
+
+    setButtonLoading(btnSaveSuggestion, false);
+
+    if (error) {
+      console.error(error);
+      toast("Save failed", "Could not save AI workout. Check ai_workouts table & RLS.", "bad");
+      saveSuggestionStatus.textContent = "Error saving AI workout.";
+      return;
+    }
+
+    toast("Saved", "AI workout saved to your database.", "good");
+    saveSuggestionStatus.textContent = "Saved ✔";
+  });
+
+  async function loadChartsAndStats() {
     const { data, error } = await supabase
       .from("workout_sessions")
       .select("*")
@@ -158,32 +240,30 @@
 
     if (error) {
       console.error(error);
+      toast("Error", "Could not load workout sessions.", "bad");
       return;
     }
 
+    // Charts data
     const labels = data.map((row) => row.session_date);
     const weights = data.map((row) => Number(row.total_weight || 0));
 
+    // Weight chart
     const ctx1 = document.getElementById("weightChart").getContext("2d");
     if (weightChart) weightChart.destroy();
     weightChart = new Chart(ctx1, {
       type: "line",
       data: {
         labels,
-        datasets: [
-          {
-            label: "Total weight (kg)",
-            data: weights
-          }
-        ]
+        datasets: [{ label: "Total weight (kg)", data: weights }]
       },
       options: {
-        scales: {
-          y: { beginAtZero: true }
-        }
+        scales: { y: { beginAtZero: true } },
+        plugins: { legend: { display: true } }
       }
     });
 
+    // Last 7 day counts
     const now = new Date();
     const last7 = [];
     for (let i = 6; i >= 0; i--) {
@@ -191,10 +271,7 @@
       d.setDate(d.getDate() - i);
       last7.push(d.toISOString().slice(0, 10));
     }
-
-    const counts = last7.map((day) =>
-      data.filter((row) => row.session_date === day).length
-    );
+    const counts = last7.map((day) => data.filter((row) => row.session_date === day).length);
 
     const ctx2 = document.getElementById("sessionsChart").getContext("2d");
     if (sessionsChart) sessionsChart.destroy();
@@ -202,35 +279,171 @@
       type: "bar",
       data: {
         labels: last7,
-        datasets: [
-          {
-            label: "Sessions",
-            data: counts
-          }
-        ]
+        datasets: [{ label: "Sessions", data: counts }]
       },
-      options: {
-        scales: {
-          y: { beginAtZero: true, ticks: { stepSize: 1 } }
-        }
-      }
+      options: { scales: { y: { beginAtZero: true, ticks: { stepSize: 1 } } } }
     });
 
+    // Weekly stats + progression
     const sessionsThisWeek = counts.reduce((a, b) => a + b, 0);
     sessionsThisWeekEl.textContent = `Sessions this week: ${sessionsThisWeek}`;
 
-    if (weights.length >= 6) {
-      const last3 = weights.slice(-3).reduce((a, b) => a + b, 0) / 3;
-      const prev3 = weights.slice(-6, -3).reduce((a, b) => a + b, 0) / 3;
-      if (last3 > prev3 + 1) {
-        trendTextEl.textContent = "Trend: going up 🔼";
-      } else if (last3 < prev3 - 1) {
-        trendTextEl.textContent = "Trend: going down 🔽";
+    // "Due" reminder based on last session date
+    const lastSessionDate = data.length ? data[data.length - 1].session_date : null;
+    if (!lastSessionDate) {
+      dueTextEl.textContent = "Due check: start your first session today 💪";
+      dueTextEl.className = "status-text status-warn";
+    } else {
+      const days = daysBetween(lastSessionDate, new Date().toISOString().slice(0, 10));
+      if (days >= 3) {
+        dueTextEl.textContent = `Due check: you’re due today (last session ${days} days ago)`;
+        dueTextEl.className = "status-text status-warn";
+      } else {
+        dueTextEl.textContent = `Due check: on track (last session ${days} day(s) ago)`;
+        dueTextEl.className = "status-text status-good";
+      }
+    }
+
+    // Volume trend based on last 7 vs previous 7 days (total weight)
+    const byDate = new Map();
+    data.forEach((row) => {
+      const key = row.session_date;
+      byDate.set(key, (byDate.get(key) || 0) + Number(row.total_weight || 0));
+    });
+
+    const last7Total = last7.reduce((sum, d) => sum + (byDate.get(d) || 0), 0);
+
+    const prev7 = [];
+    for (let i = 13; i >= 7; i--) {
+      const d = new Date(now);
+      d.setDate(d.getDate() - i);
+      prev7.push(d.toISOString().slice(0, 10));
+    }
+    const prev7Total = prev7.reduce((sum, d) => sum + (byDate.get(d) || 0), 0);
+
+    if (last7Total > 0 && prev7Total > 0) {
+      const pct = ((last7Total - prev7Total) / prev7Total) * 100;
+      const rounded = Math.round(pct);
+      if (rounded > 5) {
+        trendTextEl.textContent = `Trend: volume up ~${rounded}% 🔼`;
+        trendTextEl.className = "status-text status-good";
+      } else if (rounded < -5) {
+        trendTextEl.textContent = `Trend: volume down ~${Math.abs(rounded)}% 🔽`;
+        trendTextEl.className = "status-text status-warn";
       } else {
         trendTextEl.textContent = "Trend: stable ➖";
+        trendTextEl.className = "status-text";
       }
+    } else if (data.length >= 2) {
+      trendTextEl.textContent = "Trend: building data…";
+      trendTextEl.className = "status-text";
     } else {
       trendTextEl.textContent = "Trend: not enough data yet.";
+      trendTextEl.className = "status-text";
+    }
+
+    // Weekly progress bar (target 3 sessions/week by default)
+    const target = 3;
+    const percent = Math.max(0, Math.min(100, Math.round((sessionsThisWeek / target) * 100)));
+    weekBar.style.width = percent + "%";
+    weekHint.textContent = `Target: ${target} sessions/week • ${percent}% done`;
+  }
+
+  async function loadSmartSuggestions(force = false) {
+    setButtonLoading(btnRefresh, true, "Thinking...");
+    saveSuggestionStatus.textContent = "";
+    btnSaveSuggestion.disabled = true;
+
+    suggestionsBox.classList.add("skeleton");
+    suggestionsBox.textContent = force ? "Refreshing suggestions..." : "Loading suggestions...";
+
+    // 1) get profile (goal + weight)
+    const { data: profileData } = await supabase
+      .from("user_profiles")
+      .select("*")
+      .eq("user_id", currentUser.id)
+      .single();
+
+    const goal = profileData?.goal || "";
+    const weightKg = profileData?.weight_kg ? Number(profileData.weight_kg) : null;
+
+    // 2) get last sessions
+    const { data: sessionsData, error } = await supabase
+      .from("workout_sessions")
+      .select("*")
+      .eq("user_id", currentUser.id)
+      .order("session_date", { ascending: true });
+
+    if (error) {
+      console.error(error);
+      toast("Error", "Could not load workout sessions for suggestions.", "bad");
+      suggestionsBox.classList.remove("skeleton");
+      suggestionsBox.textContent = "Could not load your session data.";
+      setButtonLoading(btnRefresh, false);
+      return;
+    }
+
+    const last = sessionsData.length ? sessionsData[sessionsData.length - 1] : null;
+    const lastSessionDate = last?.session_date || null;
+    const lastSessionTotalWeight = last ? Number(last.total_weight || 0) : null;
+
+    const today = new Date().toISOString().slice(0, 10);
+    const daysSince = lastSessionDate ? daysBetween(lastSessionDate, today) : null;
+
+    // Sessions this week (last 7 days)
+    const now = new Date();
+    const last7 = [];
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date(now);
+      d.setDate(d.getDate() - i);
+      last7.push(d.toISOString().slice(0, 10));
+    }
+    const sessionsThisWeek = last7.reduce(
+      (sum, d) => sum + sessionsData.filter((r) => r.session_date === d).length,
+      0
+    );
+
+    // If no goal/weight, hint user
+    if (!goal || !weightKg) {
+      toast(
+        "Tip",
+        "For smarter suggestions, add your body weight and goal in Profile.",
+        "warn",
+        4200
+      );
+    }
+
+    // 3) Ask AI
+    try {
+      const prompt = buildSuggestionsPrompt({
+        goal,
+        weightKg,
+        lastSessionDate,
+        lastSessionTotalWeight,
+        sessionsThisWeek,
+        daysSinceLastSession: daysSince
+      });
+
+      const reply = await callGymBuddyAI(prompt, "suggestions");
+
+      cachedSuggestionText = reply || "";
+      cachedNextWorkoutTitle = lastSessionDate
+        ? `Next Workout (after ${lastSessionDate})`
+        : "Next Workout";
+
+      suggestionsBox.classList.remove("skeleton");
+      suggestionsBox.textContent = reply || "No suggestions returned.";
+
+      btnSaveSuggestion.disabled = !reply;
+      setButtonLoading(btnRefresh, false);
+
+      toast("AI ready", "Suggestions updated.", "good");
+    } catch (err) {
+      console.error(err);
+      suggestionsBox.classList.remove("skeleton");
+      suggestionsBox.textContent = "Could not generate suggestions. Try again.";
+      setButtonLoading(btnRefresh, false);
+      toast("AI error", err.message || "Could not generate suggestions.", "bad");
     }
   }
 </script>
